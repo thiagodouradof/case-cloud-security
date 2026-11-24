@@ -1,11 +1,15 @@
 # Análise de segurança – Terraform AWS
 
-## 1. Escopo e método
+## 1. Escopo e abordagem
 
 **Escopo:** os 4 arquivos de `terraform/aws/` (`s3.tf`, `security-group.tf`, `ebs.tf`, `rds.tf`), com 14 recursos no total.
 A análise é **estática**: não roda `terraform plan` nem `apply` e não acessa a AWS.
 
-**Método:** li cada recurso atributo por atributo e apliquei 5 perguntas:
+Fiz a análise em **3 etapas**:
+
+**Etapa 1 – Entender as ferramentas.** Revisei o que é o Terraform, como a linguagem HCL descreve recursos de nuvem (`resource "tipo" "nome" { atributos }`) e quais opções existem para analisar esses arquivos sem acessar a nuvem (python-hcl2, Checkov, OPA, c7n-left).
+
+**Etapa 2 – Ler cada arquivo, recurso por recurso.** Li todos os recursos, atributo por atributo, e apliquei a cada um 5 perguntas:
 
 1. **O que é?** Qual o papel do recurso e que dado ele guarda ou transporta.
 2. **Quem alcança?** Internet, rede interna ou apenas outros recursos.
@@ -13,7 +17,9 @@ A análise é **estática**: não roda `terraform plan` nem `apply` e não acess
 4. **Sobrevive a erro ou ataque?** Backup, versionamento, proteção contra exclusão.
 5. **Como é o acesso?** Autenticação, credenciais e privilégio mínimo.
 
-Depois consolidei os achados, classifiquei a severidade (critério na seção 6) e comparei com o Checkov (seção 5).
+**Etapa 3 – Mapear o risco.** Consolidei os achados (seção 2), classifiquei a severidade de cada um (critério na seção 6) e escolhi os 2 mais críticos para automatizar. Por fim, comparei o resultado com o Checkov (seção 5).
+
+O uso de IA ao longo dessas etapas está registrado em [uso-de-ia.md](uso-de-ia.md).
 
 ## 2. Achados
 
@@ -37,19 +43,15 @@ Depois consolidei os achados, classifiquei a severidade (critério na seção 6)
 
 Os 2 achados automatizados como controles são o **S3 `exportacao_clientes` (CTRL-AWS-001)** e o **RDS `cadastro` (CTRL-AWS-002)**: os dois cenários que expõem **diretamente** dados de clientes.
 
-## 3. Observações de projeto (não são vulnerabilidades)
+## 3. Observação de projeto (não é vulnerabilidade)
 
 - **`rds.tf` fora do padrão do `terraform fmt`:** detectado pelo `terraform fmt -check` (exit code 3). Na cópia, corrigi só o alinhamento dos `=`, sem mudar nenhum valor.
-- **Versão do provider não fixada:** não há bloco `required_providers`. Cada `terraform init` pode baixar uma versão diferente do provider AWS. Recomendo fixar a versão e commitar o `.terraform.lock.hcl`.
-- **`skip_final_snapshot = false` sem `final_snapshot_identifier`:** a intenção (tirar um snapshot final antes de apagar) é boa, mas sem o identificador o `terraform destroy` não consegue concluir a exclusão. Recomendo definir o `final_snapshot_identifier`.
 
 ## 4. Itens não avaliáveis (fora dos arquivos)
 
 - **Security Groups dos bancos** (`sg-0aa11...`, `sg-0ee55...`): só os IDs aparecem. A exposição real do `cadastro` depende deles.
-- **Subnets e route tables:** `subnets-publicas` e `subnets-privadas-dados` são apenas nomes; não dá para confirmar se há rota para um Internet Gateway.
-- **Parameter groups do RDS:** não dá para verificar se o TLS é obrigatório nas conexões.
-- **Permissões IAM e key policies da CMK:** quem pode ler os buckets, usar as chaves e restaurar snapshots.
-- **Anexo dos Security Groups e dos volumes EBS:** as instâncias, o load balancer e os attachments não fazem parte do material.
+- **Subnets:** `subnets-publicas` e `subnets-privadas-dados` são apenas nomes; não dá para confirmar se a subnet tem de fato saída para a internet.
+- **Permissões IAM e key policies das chaves KMS:** quem pode ler os buckets, usar as chaves e restaurar snapshots.
 
 ## 5. Comparação com o Checkov
 
@@ -82,7 +84,7 @@ O veredito do Checkov foi **igual** ao dos meus controles: FAIL em `exportacao_c
 
 - A **bucket policy com `Principal "*"`** no `exportacao_clientes`. Nenhum check falhou no recurso `aws_s3_bucket_policy`; o Checkov só pegou o problema indiretamente, pelas travas do bloqueio.
 - Possível uso do **usuário master** pela aplicação, **CMK compartilhada** entre sistemas, **policy sem HTTPS obrigatório** no `relatorios_financeiros`.
-- As observações de projeto da seção 3 (`fmt`, versão do provider, `final_snapshot_identifier`).
+- A formatação fora do padrão no `rds.tf` (seção 3).
 
 **Conclusão:** o Checkov é ótimo para cobertura ampla e funcionou como "gabarito" para validar a minha análise. Mas ele mistura severidades e gera ruído. Por isso, no pipeline, ele é **informativo**, e o **gate** são os 2 controles, com regra, severidade e mensagem que eu consigo explicar.
 

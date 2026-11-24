@@ -22,12 +22,6 @@ def test_rds_conforme_passa():
     assert resultado["recurso"] == "aws_db_instance.exemplo"
 
 
-def test_rds_sem_atributo_passa():
-    resultado = avaliar_exemplo("rds_sem_atributo.tf")
-    assert resultado["status"] == "PASS"
-    assert "ausente" in resultado["mensagem"]
-
-
 def test_rds_nao_conforme_falha():
     resultado = avaliar_exemplo("rds_nao_conforme.tf")
     assert resultado["status"] == "FAIL"

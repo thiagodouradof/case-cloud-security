@@ -30,6 +30,7 @@ O Checkov fica **fora** do `requirements.txt`, porque é uma ferramenta à parte
 
 ```bash
 python -m src.main terraform/aws          # validação de segurança (aceita pasta ou arquivo .tf)
+python -m src.main terraform/cenarios/remediado   # mesmo código, com as remediações aplicadas: tudo PASS, exit 0
 pytest -v                                 # testes dos controles
 checkov -d terraform/aws --framework terraform --soft-fail   # comparação com ferramenta de mercado
 
@@ -96,7 +97,9 @@ Para **adicionar um 3º controle**, basta criar a função em `src/controles/` e
 
 ## 8. Pipeline
 
-[.github/workflows/security.yml](.github/workflows/security.yml), disparado em `push` e `pull_request`:
+[pipeline/security.yml](pipeline/security.yml): um workflow do GitHub Actions, disparado em `push` e `pull_request`.
+
+> O arquivo fica em `pipeline/`, como pedem os entregáveis do desafio. Para o GitHub executá-lo de verdade, basta copiá-lo para `.github/workflows/`, que é a pasta lida pelo GitHub Actions. As mesmas etapas podem ser rodadas localmente, uma a uma (ver seção 4).
 
 ```
 commit ─► sintaxe ─┬─► seguranca (GATE) ─► deploy (conceitual, só na main)
@@ -110,7 +113,7 @@ commit ─► sintaxe ─┬─► seguranca (GATE) ─► deploy (conceitual, s
 | `checkov` | Cobertura ampla, **não bloqueia**: o gate são os meus controles |
 | `deploy` | Só `echo`. Nenhuma credencial, nenhum `plan`/`apply`. Depende do `seguranca` |
 
-> **O pipeline fica vermelho por design.** Os `.tf` do desafio têm problemas reais, então o job `seguranca` falha e o `deploy` é **pulado**. Isso prova que o gate funciona: é exatamente aí que um deploy inseguro seria barrado.
+> **O pipeline fica vermelho por design.** Os `.tf` do desafio têm problemas reais, então o job `seguranca` falha e o `deploy` é **pulado**. Com as remediações aplicadas (`terraform/cenarios/remediado`), a validação devolve exit 0 e o deploy seria liberado. Isso prova que o gate funciona: é exatamente aí que um deploy inseguro seria barrado.
 
 O workflow usa `permissions: contents: read` (menor privilégio) e foi verificado com o próprio Checkov (`--framework github_actions`): 80 checks aprovados, 0 falhas.
 

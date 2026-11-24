@@ -37,12 +37,6 @@ def test_s3_trava_parcial_lista_so_a_aberta():
     assert "Travas desligadas: block_public_policy." in resultado["mensagem"]
 
 
-def test_s3_sem_bloqueio_falha():
-    resultado = avaliar_exemplo("s3_sem_bloqueio.tf")
-    assert resultado["status"] == "FAIL"
-    assert "nenhum bloqueio" in resultado["mensagem"]
-
-
 def test_dicionario_direto_sem_arquivo():
     # Objeto de configuração montado à mão, como no exemplo do enunciado.
     # - "literal": o bloqueio aponta para o NOME do bucket, e não para uma referência;

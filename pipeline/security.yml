@@ -1,0 +1,107 @@
+# Pipeline de segurança para o código Terraform.
+#
+# Fluxo: commit -> sintaxe -> segurança (PASS/FAIL) -> deploy conceitual
+#                          \-> checkov (informativo, não bloqueia)
+#
+# Ordem: primeiro o que é barato e rápido (sintaxe), depois segurança,
+# e o deploy só acontece se a segurança passar.
+#
+# IMPORTANTE: os .tf do desafio têm problemas reais, então o job "seguranca"
+# fica VERMELHO por design e o "deploy" é pulado. Isso prova que o gate funciona.
+#
+# Premissas do desafio: nada de credenciais AWS, "terraform plan" ou "terraform apply".
+#
+# Onde fica: em pipeline/, como pedem os entregáveis do desafio. O GitHub Actions
+# só executa workflows em .github/workflows/; para rodar de verdade, copiar para lá.
+
+name: Validação de segurança
+
+on:
+  push:
+  pull_request:
+
+# Menor privilégio: o pipeline só precisa ler o repositório.
+permissions:
+  contents: read
+
+jobs:
+  # 1) SINTAXE: se o .tf nem é válido, não adianta rodar verificações de segurança.
+  sintaxe:
+    name: Sintaxe Terraform
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terraform/aws
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.17.2 # mesma versão usada localmente
+
+      # Formatação padrão: falha se algum arquivo não segue o "terraform fmt".
+      - name: terraform fmt -check
+        run: terraform fmt -check -recursive
+
+      # -backend=false: baixa só o provider; não configura estado remoto nem acessa a AWS.
+      - name: terraform init (sem backend)
+        run: terraform init -backend=false
+
+      # Valida sintaxe e referências entre recursos, sem consultar a nuvem.
+      - name: terraform validate
+        run: terraform validate
+
+  # 2) SEGURANÇA: é o GATE. Um FAIL aqui bloqueia o deploy.
+  seguranca:
+    name: Controles de segurança (gate)
+    needs: sintaxe
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+
+      - name: Instalar dependências
+        run: pip install -r requirements.txt
+
+      # Primeiro os testes: garante que os próprios controles funcionam
+      # antes de confiar no veredito deles.
+      - name: Testes dos controles (pytest)
+        run: pytest -v
+
+      # O exit code decide: 0 = sem FAIL (segue); 1 = há FAIL (job vermelho); 2 = erro de leitura.
+      - name: Validação de segurança (CTRL-AWS-001 e CTRL-AWS-002)
+        run: python -m src.main terraform/aws
+
+  # 3) CHECKOV: cobertura ampla e complementar, só INFORMATIVA (--soft-fail).
+  # Aponta muitos itens, inclusive de severidade baixa; o gate são os nossos controles.
+  checkov:
+    name: Checkov (informativo)
+    needs: sintaxe
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+
+      # Versão fixa: a mesma usada para confirmar os IDs dos checks.
+      - name: Instalar Checkov
+        run: pip install checkov==3.4.6
+
+      - name: Rodar Checkov
+        run: checkov -d terraform/aws --framework terraform --soft-fail
+
+  # 4) DEPLOY CONCEITUAL: só roda se a segurança passar, e só na branch main.
+  # Nenhuma credencial, nenhum plan/apply: é apenas uma demonstração.
+  deploy:
+    name: Deploy (conceitual)
+    needs: seguranca
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy conceitual
+        run: echo "Deploy conceitual – nada é provisionado"
